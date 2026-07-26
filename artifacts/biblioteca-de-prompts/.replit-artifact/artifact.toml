@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Biblioteca de Prompts"
+version = "1.0.0"
+id = "artifacts/biblioteca-de-prompts"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19893
+
+[services.development]
+run = "pnpm --filter @workspace/biblioteca-de-prompts run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/biblioteca-de-prompts", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/biblioteca-de-prompts/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19893"
+BASE_PATH = "/"
