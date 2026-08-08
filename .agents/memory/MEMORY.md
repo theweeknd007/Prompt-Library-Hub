@@ -1,0 +1,1 @@
+- [Gemini integration](gemini-integration.md) — use the v1 REST API with node-fetch; valid keys may still hit Google quota limits.
