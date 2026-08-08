@@ -3,7 +3,7 @@ import { GeneratePromptBody, RefinePromptBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import fetch from "node-fetch";
 
 const router: IRouter = Router();
 
@@ -16,11 +16,33 @@ const PLAN_AI_LIMITS: Record<string, number> = {
 // In-memory usage tracking (resets on server restart; use DB/Redis in production)
 const aiUsageMap = new Map<number, number>();
 
-// ─── Gemini client (lazy-initialised so the server starts even without a key) ─
-function getGemini() {
+// ─── Gemini REST helper ───────────────────────────────────────────────────────
+const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1/models";
+
+async function geminiRequest(prompt: string): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  return new GoogleGenerativeAI(key).getGenerativeModel({ model: "gemini-1.5-flash" });
+  if (!key) throw new Error("GEMINI_API_KEY not set");
+
+  const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${key}`;
+  const body = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini API ${res.status}: ${err.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as any;
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 }
 
 // ─── Fallback template generation ────────────────────────────────────────────
@@ -75,9 +97,6 @@ async function geminiGenerate(
   category: string,
   style?: string,
 ): Promise<{ content: string; title: string; suggestedTags: string[] }> {
-  const model = getGemini();
-  if (!model) return templateGenerate(topic, category);
-
   const styleHint = style ? `Tom e estilo desejado: ${style}.` : "";
 
   const systemPrompt = `Você é um especialista em engenharia de prompts para IAs generativas (ChatGPT, Claude, Gemini).
@@ -96,12 +115,7 @@ Responda com este JSON exato:
   "suggestedTags": ["tag1", "tag2", "tag3", "tag4"]
 }`;
 
-  const result = await model.generateContent([
-    { text: systemPrompt },
-    { text: userMessage },
-  ]);
-
-  const raw = result.response.text().trim();
+  const raw = (await geminiRequest(`${systemPrompt}\n\n${userMessage}`)).trim();
 
   // Strip potential markdown fences
   const jsonText = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -117,12 +131,6 @@ Responda com este JSON exato:
 
 // ─── Gemini refine ────────────────────────────────────────────────────────────
 async function geminiRefine(content: string, instruction: string): Promise<{ content: string; title: string; suggestedTags: string[] }> {
-  const model = getGemini();
-  if (!model) {
-    const refined = `${content}\n\n[Refinamento: ${instruction}]\n\nAdicione exemplos práticos e específicos. Use linguagem clara e persuasiva. Estruture com bullet points quando necessário.`;
-    return { content: refined, title: "Prompt Refinado com IA", suggestedTags: ["refinado", "ia", "otimizado"] };
-  }
-
   const prompt = `Você é um especialista em engenharia de prompts. Refine o prompt abaixo seguindo a instrução dada.
 
 PROMPT ORIGINAL:
@@ -138,8 +146,7 @@ Responda SOMENTE em JSON puro (sem markdown):
   "suggestedTags": ["tag1", "tag2", "tag3"]
 }`;
 
-  const result = await model.generateContent(prompt);
-  const raw = result.response.text().trim();
+  const raw = (await geminiRequest(prompt)).trim();
   const jsonText = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   const parsed = JSON.parse(jsonText);
 
