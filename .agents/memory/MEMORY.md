@@ -1,1 +1,1 @@
-- [Gemini integration](gemini-integration.md) — use the v1 REST API with node-fetch; valid keys may still hit Google quota limits.
+- [Groq integration](gemini-integration.md) — use groq-sdk with llama-3.3-70b-versatile; preserve the local fallback for provider failures.

@@ -1,10 +1,10 @@
 ---
-name: Gemini integration
-description: Notes on the project’s Gemini API integration and quota behavior.
+name: Groq integration
+description: Notes on the project’s current Groq API integration and provider fallback behavior.
 ---
 
-The API server calls Gemini through the v1 REST endpoint with `node-fetch`; the installed key was accepted by Google, but generation can return HTTP 429 when the Google AI Studio quota is exhausted.
+The API server now calls Groq through the official JavaScript SDK using the `llama-3.3-70b-versatile` model; generation keeps a local template fallback for provider failures.
 
-**Why:** The available Gemini models and SDK API version did not match the initial `gemini-1.5-flash` configuration, while the v1 REST endpoint exposed the current models directly.
+**Why:** Gemini quota was exhausted, so Groq was selected as the replacement provider.
 
-**How to apply:** Keep `GEMINI_API_KEY` in Replit Secrets only, use a current v1 model, and preserve the local template fallback for quota or provider failures.
+**How to apply:** Keep `GROQ_API_KEY` in Replit Secrets only, use `groq-sdk` in the API server, and preserve the local template fallback for quota or provider failures.

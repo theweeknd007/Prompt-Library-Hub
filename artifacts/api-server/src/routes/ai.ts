@@ -3,7 +3,7 @@ import { GeneratePromptBody, RefinePromptBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import fetch from "node-fetch";
+import Groq from "groq-sdk";
 
 const router: IRouter = Router();
 
@@ -16,33 +16,32 @@ const PLAN_AI_LIMITS: Record<string, number> = {
 // In-memory usage tracking (resets on server restart; use DB/Redis in production)
 const aiUsageMap = new Map<number, number>();
 
-// ─── Gemini REST helper ───────────────────────────────────────────────────────
-const GEMINI_MODEL = "gemini-2.0-flash";
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1/models";
+// ─── Groq client ──────────────────────────────────────────────────────────────
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-async function geminiRequest(prompt: string): Promise<string> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY not set");
+function getGroqClient(): Groq {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("GROQ_API_KEY not set");
+  return new Groq({ apiKey });
+}
 
-  const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${key}`;
-  const body = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
-  };
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+async function groqRequest(
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<string> {
+  const groq = getGroqClient();
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    temperature: 0.7,
+    max_tokens: 1400,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini API ${res.status}: ${err.slice(0, 200)}`);
-  }
-
-  const data = (await res.json()) as any;
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return completion.choices[0]?.message?.content?.trim() ?? "";
 }
 
 // ─── Fallback template generation ────────────────────────────────────────────
@@ -91,8 +90,8 @@ function templateGenerate(topic: string, category: string): { content: string; t
   return { content, title, suggestedTags };
 }
 
-// ─── Gemini generation ────────────────────────────────────────────────────────
-async function geminiGenerate(
+// ─── Groq generation ──────────────────────────────────────────────────────────
+async function groqGenerate(
   topic: string,
   category: string,
   style?: string,
@@ -115,7 +114,7 @@ Responda com este JSON exato:
   "suggestedTags": ["tag1", "tag2", "tag3", "tag4"]
 }`;
 
-  const raw = (await geminiRequest(`${systemPrompt}\n\n${userMessage}`)).trim();
+  const raw = await groqRequest(systemPrompt, userMessage);
 
   // Strip potential markdown fences
   const jsonText = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -129,9 +128,12 @@ Responda com este JSON exato:
   };
 }
 
-// ─── Gemini refine ────────────────────────────────────────────────────────────
-async function geminiRefine(content: string, instruction: string): Promise<{ content: string; title: string; suggestedTags: string[] }> {
-  const prompt = `Você é um especialista em engenharia de prompts. Refine o prompt abaixo seguindo a instrução dada.
+// ─── Groq refine ──────────────────────────────────────────────────────────────
+async function groqRefine(content: string, instruction: string): Promise<{ content: string; title: string; suggestedTags: string[] }> {
+  const systemPrompt = `Você é um especialista em engenharia de prompts. Refine prompts com clareza, precisão e foco em resultados.
+Responda SOMENTE em JSON válido, sem markdown, sem blocos de código.`;
+
+  const userPrompt = `Refine o prompt abaixo seguindo a instrução dada.
 
 PROMPT ORIGINAL:
 ${content}
@@ -146,7 +148,7 @@ Responda SOMENTE em JSON puro (sem markdown):
   "suggestedTags": ["tag1", "tag2", "tag3"]
 }`;
 
-  const raw = (await geminiRequest(prompt)).trim();
+  const raw = await groqRequest(systemPrompt, userPrompt);
   const jsonText = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   const parsed = JSON.parse(jsonText);
 
@@ -179,12 +181,12 @@ router.post("/ai/generate", requireAuth, async (req, res): Promise<void> => {
   const { topic, category = "marketing", style } = parsed.data;
 
   try {
-    const result = await geminiGenerate(topic, category, style);
+    const result = await groqGenerate(topic, category, style);
     aiUsageMap.set(userId, used + 1);
     res.json(result);
   } catch (err) {
-    // Fallback to template if Gemini fails
-    console.error("Gemini generate error, using fallback:", err);
+    // Fallback to template if Groq fails
+    console.error("Groq generate error, using fallback:", err);
     const fallback = templateGenerate(topic, category);
     aiUsageMap.set(userId, used + 1);
     res.json(fallback);
@@ -201,10 +203,10 @@ router.post("/ai/refine", requireAuth, async (req, res): Promise<void> => {
   const { content, instruction } = parsed.data;
 
   try {
-    const result = await geminiRefine(content, instruction);
+    const result = await groqRefine(content, instruction);
     res.json(result);
   } catch (err) {
-    console.error("Gemini refine error, using fallback:", err);
+    console.error("Groq refine error, using fallback:", err);
     const refined = `${content}\n\n[Refinamento: ${instruction}]\n\nAdicione exemplos práticos. Use linguagem clara e persuasiva.`;
     res.json({ content: refined, title: "Prompt Refinado", suggestedTags: ["refinado", "ia"] });
   }
