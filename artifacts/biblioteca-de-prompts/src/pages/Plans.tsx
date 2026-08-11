@@ -1,5 +1,5 @@
 import { Check, Zap, Star, Shield, ArrowRight } from "lucide-react";
-import { useListPlans, useGetSubscription, useCreateSubscription } from "@workspace/api-client-react";
+import { useListPlans, useGetSubscription, useCreateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 export default function Plans() {
   const { data: plans, isLoading: isLoadingPlans } = useListPlans();
   const { data: subscription, isLoading: isLoadingSub } = useGetSubscription({
-    query: { retry: false } // Will error if no subscription, which is fine
+    query: { queryKey: getGetSubscriptionQueryKey(), retry: false } // Will error if no subscription, which is fine
   });
   
   const createSubMutation = useCreateSubscription();

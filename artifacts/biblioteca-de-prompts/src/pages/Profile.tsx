@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { useGetStats, useGetSubscription } from "@workspace/api-client-react";
+import { useGetStats, useGetSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,7 +12,7 @@ export default function Profile() {
   const { user, logout } = useAuth();
   const { data: stats, isLoading: isLoadingStats } = useGetStats();
   const { data: subscription, isLoading: isLoadingSub } = useGetSubscription({
-    query: { retry: false }
+    query: { queryKey: getGetSubscriptionQueryKey(), retry: false }
   });
   
   const logoutMutation = useLogout();
@@ -147,7 +147,7 @@ export default function Profile() {
                     </div>
                   </div>
                   
-                  {stats.promptsLimit !== null && (
+                  {stats.promptsLimit != null && (
                     <div>
                       <div className="flex justify-between text-sm mb-2">
                         <span>Lados de Prompts Criados</span>
@@ -155,8 +155,8 @@ export default function Profile() {
                       </div>
                       <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-primary" 
-                          style={{ width: `${Math.min(100, (stats.totalPrompts / stats.promptsLimit) * 100)}%` }}
+                        className="h-full bg-primary"
+                        style={{ width: `${Math.min(100, (stats.totalPrompts / stats.promptsLimit) * 100)}%` }}
                         />
                       </div>
                     </div>

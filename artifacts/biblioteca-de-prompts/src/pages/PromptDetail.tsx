@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "wouter";
-import { useGetPrompt, useToggleFavorite, useToggleLike, useRecordUse } from "@workspace/api-client-react";
+import { useGetPrompt, useToggleFavorite, useToggleLike, useRecordUse, getGetPromptQueryKey } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,7 @@ export default function PromptDetail() {
   const [copied, setCopied] = useState(false);
 
   const { data: prompt, isLoading, error } = useGetPrompt(promptId, {
-    query: { enabled: !!promptId }
+    query: { queryKey: getGetPromptQueryKey(promptId), enabled: !!promptId }
   });
 
   const toggleFavorite = useToggleFavorite();
